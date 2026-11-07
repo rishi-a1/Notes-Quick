@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Local Notion‑like Notes</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <header>
+                <h2>Pages</h2>
+                <button id="add-page" title="Add page">＋</button>
+            </header>
+            <ul id="pages-list"></ul>
+        </aside>
+        <main class="editor">
+            <header class="editor-header">
+                <h1 id="current-page-title" contenteditable="true"></h1>
+                <div class="editor-actions">
+                    <button id="ai-settings" title="AI Settings">⚙️</button>
+                </div>
+            </header>
+            <section id="blocks-container" class="blocks"></section>
+        </main>
+    </div>
+
+    <!-- Slash command palette -->
+    <div id="command-palette" class="palette hidden">
+        <ul>
+            <li data-cmd="heading-1">Heading 1</li>
+            <li data-cmd="heading-2">Heading 2</li>
+            <li data-cmd="toggle">Toggle List</li>
+            <li data-cmd="paragraph">Paragraph</li>
+            <li data-cmd="new-page">New Page</li>
+        </ul>
+    </div>
+
+    <!-- AI Settings modal -->
+    <div id="ai-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>AI Integration</h2>
+            <label>
+                Endpoint URL:
+                <input type="text" id="ai-endpoint" placeholder="https://api.openai.com/v1/chat/completions" />
+            </label>
+            <label>
+                API Key:
+                <input type="password" id="ai-key" placeholder="sk-..." />
+            </label>
+            <div class="modal-actions">
+                <button id="ai-save">Save</button>
+                <button id="ai-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
