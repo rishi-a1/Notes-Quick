@@ -113,6 +113,64 @@ function createBlockElement(block, index) {
     case "toggle":
       div.innerHTML = `<div class="toggle-header">${block.content}</div><div class="toggle-children"></div>`;
       break;
+    case "table":
+      // If block.content already contains HTML, use it; otherwise create a default 2‑column table
+      const tableHTML = block.content || `<table class="table-block"><tr><td contenteditable="true"></td><td contenteditable="true"></td></tr></table>`;
+      div.innerHTML = tableHTML + `<button class="add-row" style="margin-top:4px;">＋ Row</button>`;
+      // attach row‑add handler
+      const addRowBtn = div.querySelector('.add-row');
+      addRowBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const tbl = div.querySelector('table');
+        const colCount = tbl.rows[0].cells.length;
+        const newRow = tbl.insertRow();
+        for (let i = 0; i < colCount; i++) {
+          const newCell = newRow.insertCell();
+          newCell.contentEditable = true;
+        }
+        // update stored content
+        block.content = tbl.outerHTML;
+        saveData();
+      });
+      break;
+    default: // paragraph
+      div.innerHTML = block.content;
+  }
+  // AI send button
+  const aiBtn = document.createElement("span");
+  aiBtn.className = "ai-send";
+  aiBtn.textContent = "🤖";
+  aiBtn.title = "Send to AI";
+  aiBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    sendBlockToAI(index);
+  });
+  div.appendChild(aiBtn);
+
+  // Event listeners
+  div.addEventListener("keydown", (e) => handleBlockKeyDown(e, div, block, index));
+  div.addEventListener("input", () => handleBlockInput(div, block, index));
+  if (block.type === "toggle") {
+    const header = div.querySelector(".toggle-header");
+    header.addEventListener("click", () => toggleChildren(div));
+  }
+  return div;
+}
+  const div = document.createElement("div");
+  div.className = "block";
+  div.dataset.idx = index;
+  div.contentEditable = true;
+  // set innerHTML based on type
+  switch (block.type) {
+    case "heading-1":
+      div.innerHTML = `<h1>${block.content}</h1>`;
+      break;
+    case "heading-2":
+      div.innerHTML = `<h2>${block.content}</h2>`;
+      break;
+    case "toggle":
+      div.innerHTML = `<div class="toggle-header">${block.content}</div><div class="toggle-children"></div>`;
+      break;
     default: // paragraph
       div.innerHTML = block.content;
   }
@@ -162,6 +220,19 @@ function handleBlockKeyDown(e, el, block, idx) {
   }
 }
 function handleBlockInput(el, block, idx) {
+  // update block content based on innerHTML stripped of tags for simplicity
+  if (block.type.startsWith("heading")) {
+    block.content = el.textContent.replace(/^#\s*/, "");
+  } else if (block.type === "toggle") {
+    block.content = el.querySelector('.toggle-header').textContent;
+  } else if (block.type === "table") {
+    const tbl = el.querySelector('table');
+    if (tbl) block.content = tbl.outerHTML;
+  } else {
+    block.content = el.innerHTML;
+  }
+  saveData();
+}
   // update block content based on innerHTML stripped of tags for simplicity
   if (block.type.startsWith("heading")) {
     block.content = el.textContent.replace(/^#\s*/, "");
@@ -223,7 +294,10 @@ function applyCommand(cmd, targetEl) {
       block.type = 'paragraph';
       block.content = '';
       break;
-    case 'new-page':
+        case 'table':
+      block.type = 'table';
+      block.content = '';
+      break;
       addPageBtn.click();
       return;
   }
