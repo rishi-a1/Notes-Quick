@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Local Notion‑like Notes</title>
+    <title>Notes Quick</title>
     <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -19,7 +19,8 @@
             <header class="editor-header">
                 <h1 id="current-page-title" contenteditable="true"></h1>
                 <div class="editor-actions">
-                    <button id="ai-settings" title="AI Settings">⚙️</button>
+                    <button id="ai-prompt-btn" title="Ask AI">💬 Ask AI</button>
+                    <button id="ai-settings-btn" title="AI Settings">⚙️</button>
                 </div>
             </header>
             <section id="blocks-container" class="blocks"></section>
@@ -28,31 +29,54 @@
 
     <!-- Slash command palette -->
     <div id="command-palette" class="palette hidden">
+        <div class="palette-header">Turn into…</div>
         <ul>
-            <li data-cmd="heading-1">Heading 1</li>
-            <li data-cmd="heading-2">Heading 2</li>
-            <li data-cmd="toggle">Toggle List</li>
-            <li data-cmd="paragraph">Paragraph</li>
-            <li data-cmd="new-page">New Page</li>
-            <li data-cmd="table">Table</li>
+            <li data-cmd="paragraph"><span class="cmd-icon">📝</span> Text</li>
+            <li data-cmd="heading-1"><span class="cmd-icon">H1</span> Heading 1</li>
+            <li data-cmd="heading-2"><span class="cmd-icon">H2</span> Heading 2</li>
+            <li data-cmd="heading-3"><span class="cmd-icon">H3</span> Heading 3</li>
+            <li data-cmd="toggle-list"><span class="cmd-icon">▸</span> Toggle List</li>
+            <li data-cmd="bulleted-list"><span class="cmd-icon">•</span> Bulleted List</li>
+            <li data-cmd="table"><span class="cmd-icon">▦</span> Table</li>
+            <li data-cmd="divider"><span class="cmd-icon">—</span> Divider</li>
+            <li data-cmd="new-page"><span class="cmd-icon">📄</span> New Page</li>
         </ul>
     </div>
 
     <!-- AI Settings modal -->
-    <div id="ai-modal" class="modal hidden">
+    <div id="ai-settings-modal" class="modal hidden">
         <div class="modal-content">
             <h2>AI Integration</h2>
             <label>
-                Endpoint URL:
+                Endpoint URL
                 <input type="text" id="ai-endpoint" placeholder="https://api.openai.com/v1/chat/completions" />
             </label>
             <label>
-                API Key:
+                API Key
                 <input type="password" id="ai-key" placeholder="sk-..." />
+            </label>
+            <label>
+                Model
+                <input type="text" id="ai-model" placeholder="gpt-3.5-turbo" value="gpt-3.5-turbo" />
             </label>
             <div class="modal-actions">
                 <button id="ai-save">Save</button>
                 <button id="ai-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Prompt modal -->
+    <div id="ai-prompt-modal" class="modal hidden">
+        <div class="modal-content modal-wide">
+            <h2>💬 Ask AI</h2>
+            <p class="modal-hint">Type a prompt below. If you've configured an endpoint &amp; key in settings, it will use your AI. Otherwise you'll get a placeholder response.</p>
+            <textarea id="ai-prompt-input" rows="5" placeholder="e.g. Summarise these notes…"></textarea>
+            <div id="ai-response-area" class="ai-response hidden"></div>
+            <div class="modal-actions">
+                <button id="ai-prompt-send">Send</button>
+                <button id="ai-prompt-insert" class="hidden">Insert into page</button>
+                <button id="ai-prompt-cancel">Cancel</button>
             </div>
         </div>
     </div>
