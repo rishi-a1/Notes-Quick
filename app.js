@@ -17,7 +17,7 @@ function loadData() {
   if (!data.ai) data.ai = { endpoint: "", key: "", model: "gpt-3.5-turbo" };
   if (!data.currentPageId || !data.pages[data.currentPageId]) {
     const id = uid();
-    data.pages[id] = { title: "Untitled", blocks: [] };
+    data.pages[id] = { title: "", blocks: [] };
     data.currentPageId = id;
     saveData();
   }
@@ -78,43 +78,63 @@ function switchPage(id) {
 
 addPageBtn.addEventListener("click", () => {
   const id = uid();
-  data.pages[id] = { title: "New Page", blocks: [] };
+  data.pages[id] = { title: "", blocks: [] };
   data.currentPageId = id;
   saveData();
   renderPages();
   renderBlocks();
+  // Focus the title so user can start typing immediately
+  setTimeout(() => pageTitleEl.focus(), 50);
 });
 
-// ==================== Page Title ====================
+// ==================== Page Title (Notion-style) ====================
+// User types the title, presses Enter → title is saved, cursor moves to body
 pageTitleEl.addEventListener("input", () => {
   const page = data.pages[data.currentPageId];
   if (!page) return;
-  page.title = pageTitleEl.textContent.trim() || "Untitled";
+  page.title = pageTitleEl.textContent.trim();
   saveData();
   renderPages();
 });
 
+pageTitleEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    // Save the title and move focus to the first editable block
+    const page = data.pages[data.currentPageId];
+    if (page) {
+      page.title = pageTitleEl.textContent.trim() || "Untitled";
+      saveData();
+      renderPages();
+    }
+    // Ensure there's at least one block, then focus it
+    ensureTrailingParagraph();
+    const firstEditable = blocksContainer.querySelector("[contenteditable]");
+    if (firstEditable) firstEditable.focus();
+  }
+});
+
 // ==================== Blocks ====================
+function ensureTrailingParagraph() {
+  const page = data.pages[data.currentPageId];
+  if (!page) return;
+  if (page.blocks.length === 0 || page.blocks[page.blocks.length - 1].type !== "paragraph") {
+    page.blocks.push({ type: "paragraph", content: "" });
+    saveData();
+  }
+}
+
 function renderBlocks() {
   const page = data.pages[data.currentPageId];
   if (!page) return;
   pageTitleEl.textContent = page.title;
   blocksContainer.innerHTML = "";
 
+  ensureTrailingParagraph();
+
   page.blocks.forEach((blk, idx) => {
     blocksContainer.appendChild(buildBlockEl(blk, idx));
   });
-
-  // Always have an empty paragraph at the end so users can keep typing
-  if (page.blocks.length === 0 || lastBlockType(page) !== "paragraph") {
-    page.blocks.push({ type: "paragraph", content: "" });
-    saveData();
-    blocksContainer.appendChild(buildBlockEl(page.blocks[page.blocks.length - 1], page.blocks.length - 1));
-  }
-}
-
-function lastBlockType(page) {
-  return page.blocks.length ? page.blocks[page.blocks.length - 1].type : null;
 }
 
 // ==================== Build a single block element ====================
@@ -124,17 +144,23 @@ function buildBlockEl(block, index) {
   switch (block.type) {
     case "heading-1":
       el = makeEditable("div", "block");
-      el.innerHTML = "<h1>" + esc(block.content) + "</h1>";
+      const h1 = document.createElement("h1");
+      h1.textContent = block.content;
+      el.appendChild(h1);
       break;
 
     case "heading-2":
       el = makeEditable("div", "block");
-      el.innerHTML = "<h2>" + esc(block.content) + "</h2>";
+      const h2 = document.createElement("h2");
+      h2.textContent = block.content;
+      el.appendChild(h2);
       break;
 
     case "heading-3":
       el = makeEditable("div", "block");
-      el.innerHTML = "<h3>" + esc(block.content) + "</h3>";
+      const h3 = document.createElement("h3");
+      h3.textContent = block.content;
+      el.appendChild(h3);
       break;
 
     case "toggle-list":
@@ -155,7 +181,7 @@ function buildBlockEl(block, index) {
       el.className = "block";
       el.innerHTML = '<hr class="divider-block">';
       el.dataset.idx = index;
-      return el; // no editing, no AI button
+      return el;
 
     default: // paragraph
       el = makeEditable("div", "block");
@@ -175,7 +201,7 @@ function buildBlockEl(block, index) {
     el.appendChild(aiBtn);
   }
 
-  // Block keyboard & input handlers
+  // Block keyboard & input handlers (not for toggle-list, table, divider – they have their own)
   if (block.type !== "toggle-list" && block.type !== "table" && block.type !== "divider") {
     el.addEventListener("keydown", (e) => onBlockKeyDown(e, el, block, index));
     el.addEventListener("input", () => onBlockInput(el, block));
@@ -189,12 +215,6 @@ function makeEditable(tag, cls) {
   el.className = cls;
   el.contentEditable = "true";
   return el;
-}
-
-function esc(str) {
-  const d = document.createElement("div");
-  d.textContent = str;
-  return d.innerHTML;
 }
 
 // ==================== Toggle List ====================
@@ -219,17 +239,12 @@ function buildToggleEl(block, index) {
   content.textContent = block.content || "";
   content.addEventListener("input", () => { block.content = content.textContent; saveData(); });
   content.addEventListener("keydown", (e) => {
-    if (e.key === "/") {
-      setTimeout(() => { if (content.textContent.trim() === "/") { content.textContent = ""; openPalette(wrapper, index); } }, 0);
-    }
     if (e.key === "Enter") {
       e.preventDefault();
-      // Add a child
       block.children.push({ content: "" });
       block.open = true;
       saveData();
       renderBlocks();
-      // Focus last child
       const wrapperNew = blocksContainer.querySelector(`[data-idx="${index}"]`);
       const kids = wrapperNew.querySelectorAll(".toggle-child");
       if (kids.length) kids[kids.length - 1].focus();
@@ -309,7 +324,6 @@ function buildTableEl(block, index) {
 
   wrapper.appendChild(table);
 
-  // Add row / col buttons
   const actions = document.createElement("div");
   actions.className = "table-actions";
 
@@ -340,6 +354,13 @@ function buildTableEl(block, index) {
 function onBlockKeyDown(e, el, block, idx) {
   const page = data.pages[data.currentPageId];
 
+  // SLASH COMMAND: if the block is empty and user presses "/", open the palette
+  if (e.key === "/" && el.textContent.trim() === "") {
+    e.preventDefault(); // don't insert the "/" character
+    openPalette(el, idx);
+    return;
+  }
+
   if (e.key === "Enter") {
     e.preventDefault();
     const newBlock = { type: "paragraph", content: "" };
@@ -347,7 +368,10 @@ function onBlockKeyDown(e, el, block, idx) {
     saveData();
     renderBlocks();
     const next = blocksContainer.querySelector(`[data-idx="${idx + 1}"]`);
-    if (next) next.focus();
+    if (next) {
+      const editable = next.querySelector("[contenteditable]") || next;
+      editable.focus();
+    }
     return;
   }
 
@@ -357,81 +381,104 @@ function onBlockKeyDown(e, el, block, idx) {
     saveData();
     renderBlocks();
     const prev = blocksContainer.querySelector(`[data-idx="${Math.max(0, idx - 1)}"]`);
-    if (prev) prev.focus();
+    if (prev) {
+      const editable = prev.querySelector("[contenteditable]") || prev;
+      editable.focus();
+    }
     return;
   }
 
-  // Slash command detection
-  if (e.key === "/") {
-    setTimeout(() => {
-      if (el.textContent.trim() === "/") {
-        el.textContent = "";
-        block.content = "";
-        openPalette(el, idx);
-      }
-    }, 0);
+  // Arrow down at end → focus next block
+  if (e.key === "ArrowDown") {
+    const next = blocksContainer.querySelector(`[data-idx="${idx + 1}"]`);
+    if (next) {
+      e.preventDefault();
+      const editable = next.querySelector("[contenteditable]") || next;
+      editable.focus();
+    }
+  }
+
+  // Arrow up at start → focus previous block
+  if (e.key === "ArrowUp" && idx > 0) {
+    const prev = blocksContainer.querySelector(`[data-idx="${idx - 1}"]`);
+    if (prev) {
+      e.preventDefault();
+      const editable = prev.querySelector("[contenteditable]") || prev;
+      editable.focus();
+    }
   }
 }
 
 function onBlockInput(el, block) {
-  if (block.type.startsWith("heading")) {
-    block.content = el.textContent;
-  } else {
-    block.content = el.textContent;
-  }
+  block.content = el.textContent;
   saveData();
 }
 
 // ==================== Slash Command Palette ====================
-let paletteTarget = null;
-let paletteIdx = null;
-let paletteHighlight = 0;
+let paletteTargetEl = null;
+let paletteTargetIdx = null;
+let paletteHL = 0;
 
 function openPalette(el, idx) {
-  paletteTarget = el;
-  paletteIdx = idx;
-  paletteHighlight = 0;
+  paletteTargetEl = el;
+  paletteTargetIdx = idx;
+  paletteHL = 0;
 
   const rect = el.getBoundingClientRect();
   palette.style.top = (rect.bottom + 4) + "px";
   palette.style.left = rect.left + "px";
   palette.classList.remove("hidden");
 
-  highlightPaletteItem();
+  updatePaletteHL();
 
-  // Close on outside click (deferred so current click doesn't close it)
+  // Defer so the current event cycle doesn't immediately close it
   setTimeout(() => {
-    document.addEventListener("click", closePaletteOutside);
-    document.addEventListener("keydown", paletteKeyHandler);
-  }, 10);
+    document.addEventListener("click", onPaletteOutsideClick);
+    document.addEventListener("keydown", onPaletteKeyDown);
+  }, 20);
 }
 
 function closePalette() {
   palette.classList.add("hidden");
-  paletteTarget = null;
-  paletteIdx = null;
-  document.removeEventListener("click", closePaletteOutside);
-  document.removeEventListener("keydown", paletteKeyHandler);
+  document.removeEventListener("click", onPaletteOutsideClick);
+  document.removeEventListener("keydown", onPaletteKeyDown);
+  // Re-focus the block
+  if (paletteTargetEl) paletteTargetEl.focus();
+  paletteTargetEl = null;
+  paletteTargetIdx = null;
 }
 
-function closePaletteOutside(e) {
+function onPaletteOutsideClick(e) {
   if (!palette.contains(e.target)) closePalette();
 }
 
-function paletteKeyHandler(e) {
+function onPaletteKeyDown(e) {
   const items = palette.querySelectorAll("li");
-  if (e.key === "ArrowDown") { e.preventDefault(); paletteHighlight = (paletteHighlight + 1) % items.length; highlightPaletteItem(); }
-  if (e.key === "ArrowUp")   { e.preventDefault(); paletteHighlight = (paletteHighlight - 1 + items.length) % items.length; highlightPaletteItem(); }
-  if (e.key === "Enter")     { e.preventDefault(); items[paletteHighlight]?.click(); }
-  if (e.key === "Escape")    { closePalette(); }
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    paletteHL = (paletteHL + 1) % items.length;
+    updatePaletteHL();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    paletteHL = (paletteHL - 1 + items.length) % items.length;
+    updatePaletteHL();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    e.stopPropagation();
+    const cmd = items[paletteHL]?.dataset.cmd;
+    if (cmd) applyCommand(cmd);
+    closePalette();
+  } else if (e.key === "Escape") {
+    closePalette();
+  }
 }
 
-function highlightPaletteItem() {
+function updatePaletteHL() {
   const items = palette.querySelectorAll("li");
-  items.forEach((li, i) => li.classList.toggle("active", i === paletteHighlight));
+  items.forEach((li, i) => li.classList.toggle("active", i === paletteHL));
 }
 
-// Palette item clicks
+// Click on palette items
 palette.addEventListener("click", (e) => {
   const li = e.target.closest("li");
   if (!li || !li.dataset.cmd) return;
@@ -448,30 +495,39 @@ function applyCommand(cmd) {
     return;
   }
 
-  const idx = paletteIdx;
+  const idx = paletteTargetIdx;
   if (idx == null || idx < 0 || idx >= page.blocks.length) return;
   const block = page.blocks[idx];
 
   switch (cmd) {
-    case "heading-1":     block.type = "heading-1"; block.content = block.content || ""; break;
-    case "heading-2":     block.type = "heading-2"; block.content = block.content || ""; break;
-    case "heading-3":     block.type = "heading-3"; block.content = block.content || ""; break;
-    case "toggle-list":   block.type = "toggle-list"; block.content = block.content || ""; block.children = [{ content: "" }]; block.open = true; break;
-    case "bulleted-list": block.type = "bulleted-list"; block.content = block.content || ""; break;
-    case "table":         block.type = "table"; block.rows = [["", ""], ["", ""]]; break;
+    case "heading-1":     block.type = "heading-1"; break;
+    case "heading-2":     block.type = "heading-2"; break;
+    case "heading-3":     block.type = "heading-3"; break;
+    case "toggle-list":
+      block.type = "toggle-list";
+      block.children = [{ content: "" }];
+      block.open = true;
+      break;
+    case "bulleted-list": block.type = "bulleted-list"; break;
+    case "table":
+      block.type = "table";
+      block.rows = [["", ""], ["", ""]];
+      break;
     case "divider":       block.type = "divider"; break;
-    case "paragraph":     block.type = "paragraph"; block.content = block.content || ""; break;
+    case "paragraph":     block.type = "paragraph"; break;
   }
 
   saveData();
   renderBlocks();
 
   // Focus the transformed block
-  const newEl = blocksContainer.querySelector(`[data-idx="${idx}"]`);
-  if (newEl) {
-    const editable = newEl.querySelector("[contenteditable]") || newEl;
-    setTimeout(() => editable.focus(), 0);
-  }
+  setTimeout(() => {
+    const newEl = blocksContainer.querySelector(`[data-idx="${idx}"]`);
+    if (newEl) {
+      const editable = newEl.querySelector("[contenteditable]") || newEl;
+      editable.focus();
+    }
+  }, 30);
 }
 
 // ==================== AI Settings ====================
@@ -514,7 +570,6 @@ aiPromptSend.addEventListener("click", async () => {
 
   try {
     if (data.ai.endpoint && data.ai.key) {
-      // Real AI call
       const resp = await fetch(data.ai.endpoint, {
         method: "POST",
         headers: {
@@ -529,7 +584,6 @@ aiPromptSend.addEventListener("click", async () => {
       const json = await resp.json();
       lastAIResponse = json.choices?.[0]?.message?.content ?? "[No response from AI]";
     } else {
-      // Free placeholder response
       lastAIResponse = "AI response placeholder:\n\nYou asked: \"" + prompt + "\"\n\nTo get real AI responses, click ⚙️ and configure your endpoint & API key.";
     }
   } catch (err) {
