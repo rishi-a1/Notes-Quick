@@ -38,7 +38,6 @@ const pageTitleEl     = document.getElementById("current-page-title");
 const blocksContainer = document.getElementById("blocks-container");
 const palette         = document.getElementById("command-palette");
 
-// AI Settings modal
 const aiSettingsBtn   = document.getElementById("ai-settings-btn");
 const aiSettingsModal = document.getElementById("ai-settings-modal");
 const aiEndpointIn    = document.getElementById("ai-endpoint");
@@ -47,7 +46,6 @@ const aiModelIn       = document.getElementById("ai-model");
 const aiSaveBtn       = document.getElementById("ai-save");
 const aiCancelBtn     = document.getElementById("ai-cancel");
 
-// AI Prompt modal
 const aiPromptBtn     = document.getElementById("ai-prompt-btn");
 const aiPromptModal   = document.getElementById("ai-prompt-modal");
 const aiPromptInput   = document.getElementById("ai-prompt-input");
@@ -83,12 +81,10 @@ addPageBtn.addEventListener("click", () => {
   saveData();
   renderPages();
   renderBlocks();
-  // Focus the title so user can start typing immediately
   setTimeout(() => pageTitleEl.focus(), 50);
 });
 
 // ==================== Page Title (Notion-style) ====================
-// User types the title, presses Enter → title is saved, cursor moves to body
 pageTitleEl.addEventListener("input", () => {
   const page = data.pages[data.currentPageId];
   if (!page) return;
@@ -100,17 +96,36 @@ pageTitleEl.addEventListener("input", () => {
 pageTitleEl.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     e.preventDefault();
-    // Save the title and move focus to the first editable block
     const page = data.pages[data.currentPageId];
     if (page) {
       page.title = pageTitleEl.textContent.trim() || "Untitled";
       saveData();
       renderPages();
     }
-    // Ensure there's at least one block, then focus it
     ensureTrailingParagraph();
-    const firstEditable = blocksContainer.querySelector("[contenteditable]");
-    if (firstEditable) firstEditable.focus();
+    renderBlocks();
+    focusBlock(0);
+  }
+});
+
+// ==================== Click empty space → focus last block ====================
+blocksContainer.addEventListener("click", (e) => {
+  // Only trigger if the click was directly on the container, not on a child block
+  if (e.target === blocksContainer) {
+    const page = data.pages[data.currentPageId];
+    if (!page) return;
+    ensureTrailingParagraph();
+    // If the last block is empty, focus it. Otherwise create a new one.
+    const last = page.blocks[page.blocks.length - 1];
+    if (last && last.type === "paragraph" && (last.content || "").trim() === "") {
+      renderBlocks();
+      focusBlock(page.blocks.length - 1);
+    } else {
+      page.blocks.push({ type: "paragraph", content: "" });
+      saveData();
+      renderBlocks();
+      focusBlock(page.blocks.length - 1);
+    }
   }
 });
 
@@ -118,7 +133,8 @@ pageTitleEl.addEventListener("keydown", (e) => {
 function ensureTrailingParagraph() {
   const page = data.pages[data.currentPageId];
   if (!page) return;
-  if (page.blocks.length === 0 || page.blocks[page.blocks.length - 1].type !== "paragraph") {
+  if (page.blocks.length === 0 || page.blocks[page.blocks.length - 1].type !== "paragraph"
+      || (page.blocks[page.blocks.length - 1].content || "").trim() !== "") {
     page.blocks.push({ type: "paragraph", content: "" });
     saveData();
   }
@@ -129,112 +145,154 @@ function renderBlocks() {
   if (!page) return;
   pageTitleEl.textContent = page.title;
   blocksContainer.innerHTML = "";
-
   ensureTrailingParagraph();
-
   page.blocks.forEach((blk, idx) => {
     blocksContainer.appendChild(buildBlockEl(blk, idx));
   });
 }
 
-// ==================== Build a single block element ====================
+function focusBlock(idx) {
+  setTimeout(() => {
+    const el = blocksContainer.querySelector(`[data-idx="${idx}"]`);
+    if (!el) return;
+    const editable = el.querySelector(".block-content") || el.querySelector("[contenteditable]") || el;
+    editable.focus();
+    // Place cursor at end
+    const range = document.createRange();
+    const sel = window.getSelection();
+    range.selectNodeContents(editable);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }, 20);
+}
+
+// ==================== Build block element ====================
+// Structure:  <div class="block" data-idx>
+//               <div class="block-content" contenteditable> ... </div>
+//               <span class="ai-send">🤖</span>   ← OUTSIDE the editable area
+//             </div>
+
 function buildBlockEl(block, index) {
-  let el;
+  let wrapper;
 
   switch (block.type) {
     case "heading-1":
-      el = makeEditable("div", "block");
-      const h1 = document.createElement("h1");
-      h1.textContent = block.content;
-      el.appendChild(h1);
-      break;
-
     case "heading-2":
-      el = makeEditable("div", "block");
-      const h2 = document.createElement("h2");
-      h2.textContent = block.content;
-      el.appendChild(h2);
-      break;
-
     case "heading-3":
-      el = makeEditable("div", "block");
-      const h3 = document.createElement("h3");
-      h3.textContent = block.content;
-      el.appendChild(h3);
+      wrapper = buildHeadingEl(block, index);
       break;
-
     case "toggle-list":
-      el = buildToggleEl(block, index);
+      wrapper = buildToggleEl(block, index);
       break;
-
     case "bulleted-list":
-      el = makeEditable("div", "block bulleted-item");
-      el.textContent = block.content;
+      wrapper = buildBulletEl(block, index);
       break;
-
     case "table":
-      el = buildTableEl(block, index);
+      wrapper = buildTableEl(block, index);
       break;
-
     case "divider":
-      el = document.createElement("div");
-      el.className = "block";
-      el.innerHTML = '<hr class="divider-block">';
-      el.dataset.idx = index;
-      return el;
-
+      wrapper = document.createElement("div");
+      wrapper.className = "block";
+      wrapper.dataset.idx = index;
+      wrapper.innerHTML = '<hr class="divider-block">';
+      return wrapper;
     default: // paragraph
-      el = makeEditable("div", "block");
-      el.textContent = block.content;
+      wrapper = buildParagraphEl(block, index);
       break;
   }
 
-  el.dataset.idx = index;
+  wrapper.dataset.idx = index;
 
-  // Per-block AI button
+  // AI send button – appended to wrapper, OUTSIDE the editable content
   if (block.type !== "divider") {
     const aiBtn = document.createElement("span");
     aiBtn.className = "ai-send";
     aiBtn.textContent = "🤖";
     aiBtn.title = "Send block to AI";
-    aiBtn.addEventListener("click", (e) => { e.stopPropagation(); sendBlockToAI(index); });
-    el.appendChild(aiBtn);
+    aiBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      sendBlockToAI(index);
+    });
+    wrapper.appendChild(aiBtn);
   }
 
-  // Block keyboard & input handlers (not for toggle-list, table, divider – they have their own)
-  if (block.type !== "toggle-list" && block.type !== "table" && block.type !== "divider") {
-    el.addEventListener("keydown", (e) => onBlockKeyDown(e, el, block, index));
-    el.addEventListener("input", () => onBlockInput(el, block));
-  }
-
-  return el;
+  return wrapper;
 }
 
-function makeEditable(tag, cls) {
-  const el = document.createElement(tag);
-  el.className = cls;
-  el.contentEditable = "true";
-  return el;
+// ---------- Paragraph ----------
+function buildParagraphEl(block, index) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "block";
+
+  const content = document.createElement("div");
+  content.className = "block-content";
+  content.contentEditable = "true";
+  content.textContent = block.content || "";
+  content.addEventListener("input", () => { block.content = content.textContent; saveData(); });
+  content.addEventListener("keydown", (e) => onBlockKeyDown(e, content, block, index));
+
+  wrapper.appendChild(content);
+  return wrapper;
 }
 
-// ==================== Toggle List ====================
+// ---------- Heading ----------
+function buildHeadingEl(block, index) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "block";
+
+  const tag = block.type === "heading-1" ? "h1" : block.type === "heading-2" ? "h2" : "h3";
+  const content = document.createElement(tag);
+  content.className = "block-content";
+  content.contentEditable = "true";
+  content.textContent = block.content || "";
+  content.addEventListener("input", () => { block.content = content.textContent; saveData(); });
+  content.addEventListener("keydown", (e) => onBlockKeyDown(e, content, block, index));
+
+  wrapper.appendChild(content);
+  return wrapper;
+}
+
+// ---------- Bulleted list item ----------
+function buildBulletEl(block, index) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "block bulleted-item";
+
+  const content = document.createElement("div");
+  content.className = "block-content";
+  content.contentEditable = "true";
+  content.textContent = block.content || "";
+  content.addEventListener("input", () => { block.content = content.textContent; saveData(); });
+  content.addEventListener("keydown", (e) => onBlockKeyDown(e, content, block, index));
+
+  wrapper.appendChild(content);
+  return wrapper;
+}
+
+// ---------- Toggle list ----------
 function buildToggleEl(block, index) {
   if (!block.children) block.children = [{ content: "" }];
 
   const wrapper = document.createElement("div");
   wrapper.className = "block toggle-wrapper";
-  wrapper.dataset.idx = index;
 
-  // Header row
   const header = document.createElement("div");
   header.className = "toggle-header";
 
   const arrow = document.createElement("span");
   arrow.className = "toggle-arrow" + (block.open ? " open" : "");
   arrow.textContent = "▸";
+  arrow.addEventListener("click", (e) => {
+    e.stopPropagation();
+    block.open = !block.open;
+    arrow.classList.toggle("open", block.open);
+    childrenDiv.classList.toggle("collapsed", !block.open);
+    saveData();
+  });
 
   const content = document.createElement("span");
-  content.className = "toggle-content";
+  content.className = "toggle-content block-content";
   content.contentEditable = "true";
   content.textContent = block.content || "";
   content.addEventListener("input", () => { block.content = content.textContent; saveData(); });
@@ -245,8 +303,8 @@ function buildToggleEl(block, index) {
       block.open = true;
       saveData();
       renderBlocks();
-      const wrapperNew = blocksContainer.querySelector(`[data-idx="${index}"]`);
-      const kids = wrapperNew.querySelectorAll(".toggle-child");
+      const w = blocksContainer.querySelector(`[data-idx="${index}"]`);
+      const kids = w ? w.querySelectorAll(".toggle-child") : [];
       if (kids.length) kids[kids.length - 1].focus();
     }
   });
@@ -255,7 +313,6 @@ function buildToggleEl(block, index) {
   header.appendChild(content);
   wrapper.appendChild(header);
 
-  // Children container
   const childrenDiv = document.createElement("div");
   childrenDiv.className = "toggle-children" + (block.open ? "" : " collapsed");
 
@@ -271,8 +328,8 @@ function buildToggleEl(block, index) {
         block.children.splice(ci + 1, 0, { content: "" });
         saveData();
         renderBlocks();
-        const wrapperNew = blocksContainer.querySelector(`[data-idx="${index}"]`);
-        const kids = wrapperNew.querySelectorAll(".toggle-child");
+        const w = blocksContainer.querySelector(`[data-idx="${index}"]`);
+        const kids = w ? w.querySelectorAll(".toggle-child") : [];
         if (kids[ci + 1]) kids[ci + 1].focus();
       }
       if (e.key === "Backspace" && childEl.textContent === "" && block.children.length > 1) {
@@ -286,26 +343,15 @@ function buildToggleEl(block, index) {
   });
 
   wrapper.appendChild(childrenDiv);
-
-  // Toggle open/close on arrow click
-  arrow.addEventListener("click", (e) => {
-    e.stopPropagation();
-    block.open = !block.open;
-    arrow.classList.toggle("open", block.open);
-    childrenDiv.classList.toggle("collapsed", !block.open);
-    saveData();
-  });
-
   return wrapper;
 }
 
-// ==================== Table ====================
+// ---------- Table ----------
 function buildTableEl(block, index) {
   if (!block.rows) block.rows = [["", ""], ["", ""]];
 
   const wrapper = document.createElement("div");
   wrapper.className = "block";
-  wrapper.dataset.idx = index;
 
   const table = document.createElement("table");
   table.className = "table-block";
@@ -331,33 +377,30 @@ function buildTableEl(block, index) {
   addRow.textContent = "＋ Row";
   addRow.addEventListener("click", () => {
     block.rows.push(new Array(block.rows[0].length).fill(""));
-    saveData();
-    renderBlocks();
+    saveData(); renderBlocks();
   });
 
   const addCol = document.createElement("button");
   addCol.textContent = "＋ Column";
   addCol.addEventListener("click", () => {
     block.rows.forEach(r => r.push(""));
-    saveData();
-    renderBlocks();
+    saveData(); renderBlocks();
   });
 
   actions.appendChild(addRow);
   actions.appendChild(addCol);
   wrapper.appendChild(actions);
-
   return wrapper;
 }
 
 // ==================== Block keyboard ====================
-function onBlockKeyDown(e, el, block, idx) {
+function onBlockKeyDown(e, contentEl, block, idx) {
   const page = data.pages[data.currentPageId];
 
-  // SLASH COMMAND: if the block is empty and user presses "/", open the palette
-  if (e.key === "/" && el.textContent.trim() === "") {
-    e.preventDefault(); // don't insert the "/" character
-    openPalette(el, idx);
+  // SLASH: if block content is empty and user presses "/", open palette
+  if (e.key === "/" && contentEl.textContent.trim() === "") {
+    e.preventDefault();
+    openPalette(contentEl, idx);
     return;
   }
 
@@ -367,51 +410,27 @@ function onBlockKeyDown(e, el, block, idx) {
     page.blocks.splice(idx + 1, 0, newBlock);
     saveData();
     renderBlocks();
-    const next = blocksContainer.querySelector(`[data-idx="${idx + 1}"]`);
-    if (next) {
-      const editable = next.querySelector("[contenteditable]") || next;
-      editable.focus();
-    }
+    focusBlock(idx + 1);
     return;
   }
 
-  if (e.key === "Backspace" && el.textContent === "" && page.blocks.length > 1) {
+  if (e.key === "Backspace" && contentEl.textContent === "" && page.blocks.length > 1) {
     e.preventDefault();
     page.blocks.splice(idx, 1);
     saveData();
     renderBlocks();
-    const prev = blocksContainer.querySelector(`[data-idx="${Math.max(0, idx - 1)}"]`);
-    if (prev) {
-      const editable = prev.querySelector("[contenteditable]") || prev;
-      editable.focus();
-    }
+    focusBlock(Math.max(0, idx - 1));
     return;
   }
 
-  // Arrow down at end → focus next block
   if (e.key === "ArrowDown") {
     const next = blocksContainer.querySelector(`[data-idx="${idx + 1}"]`);
-    if (next) {
-      e.preventDefault();
-      const editable = next.querySelector("[contenteditable]") || next;
-      editable.focus();
-    }
+    if (next) { e.preventDefault(); focusBlock(idx + 1); }
   }
-
-  // Arrow up at start → focus previous block
   if (e.key === "ArrowUp" && idx > 0) {
-    const prev = blocksContainer.querySelector(`[data-idx="${idx - 1}"]`);
-    if (prev) {
-      e.preventDefault();
-      const editable = prev.querySelector("[contenteditable]") || prev;
-      editable.focus();
-    }
+    e.preventDefault();
+    focusBlock(idx - 1);
   }
-}
-
-function onBlockInput(el, block) {
-  block.content = el.textContent;
-  saveData();
 }
 
 // ==================== Slash Command Palette ====================
@@ -419,66 +438,60 @@ let paletteTargetEl = null;
 let paletteTargetIdx = null;
 let paletteHL = 0;
 
-function openPalette(el, idx) {
-  paletteTargetEl = el;
+function openPalette(contentEl, idx) {
+  paletteTargetEl = contentEl;
   paletteTargetIdx = idx;
   paletteHL = 0;
 
-  const rect = el.getBoundingClientRect();
+  const rect = contentEl.getBoundingClientRect();
   palette.style.top = (rect.bottom + 4) + "px";
   palette.style.left = rect.left + "px";
   palette.classList.remove("hidden");
-
   updatePaletteHL();
 
-  // Defer so the current event cycle doesn't immediately close it
   setTimeout(() => {
-    document.addEventListener("click", onPaletteOutsideClick);
-    document.addEventListener("keydown", onPaletteKeyDown);
+    document.addEventListener("click", onPaletteOutside);
+    document.addEventListener("keydown", onPaletteKey, true); // capture phase
   }, 20);
 }
 
 function closePalette() {
   palette.classList.add("hidden");
-  document.removeEventListener("click", onPaletteOutsideClick);
-  document.removeEventListener("keydown", onPaletteKeyDown);
-  // Re-focus the block
-  if (paletteTargetEl) paletteTargetEl.focus();
+  document.removeEventListener("click", onPaletteOutside);
+  document.removeEventListener("keydown", onPaletteKey, true);
   paletteTargetEl = null;
   paletteTargetIdx = null;
 }
 
-function onPaletteOutsideClick(e) {
+function onPaletteOutside(e) {
   if (!palette.contains(e.target)) closePalette();
 }
 
-function onPaletteKeyDown(e) {
+function onPaletteKey(e) {
   const items = palette.querySelectorAll("li");
   if (e.key === "ArrowDown") {
-    e.preventDefault();
+    e.preventDefault(); e.stopPropagation();
     paletteHL = (paletteHL + 1) % items.length;
     updatePaletteHL();
   } else if (e.key === "ArrowUp") {
-    e.preventDefault();
+    e.preventDefault(); e.stopPropagation();
     paletteHL = (paletteHL - 1 + items.length) % items.length;
     updatePaletteHL();
   } else if (e.key === "Enter") {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     const cmd = items[paletteHL]?.dataset.cmd;
     if (cmd) applyCommand(cmd);
     closePalette();
   } else if (e.key === "Escape") {
+    e.preventDefault(); e.stopPropagation();
     closePalette();
   }
 }
 
 function updatePaletteHL() {
-  const items = palette.querySelectorAll("li");
-  items.forEach((li, i) => li.classList.toggle("active", i === paletteHL));
+  palette.querySelectorAll("li").forEach((li, i) => li.classList.toggle("active", i === paletteHL));
 }
 
-// Click on palette items
 palette.addEventListener("click", (e) => {
   const li = e.target.closest("li");
   if (!li || !li.dataset.cmd) return;
@@ -490,10 +503,7 @@ function applyCommand(cmd) {
   const page = data.pages[data.currentPageId];
   if (!page) return;
 
-  if (cmd === "new-page") {
-    addPageBtn.click();
-    return;
-  }
+  if (cmd === "new-page") { addPageBtn.click(); return; }
 
   const idx = paletteTargetIdx;
   if (idx == null || idx < 0 || idx >= page.blocks.length) return;
@@ -513,21 +523,13 @@ function applyCommand(cmd) {
       block.type = "table";
       block.rows = [["", ""], ["", ""]];
       break;
-    case "divider":       block.type = "divider"; break;
-    case "paragraph":     block.type = "paragraph"; break;
+    case "divider": block.type = "divider"; break;
+    case "paragraph": block.type = "paragraph"; break;
   }
 
   saveData();
   renderBlocks();
-
-  // Focus the transformed block
-  setTimeout(() => {
-    const newEl = blocksContainer.querySelector(`[data-idx="${idx}"]`);
-    if (newEl) {
-      const editable = newEl.querySelector("[contenteditable]") || newEl;
-      editable.focus();
-    }
-  }, 30);
+  focusBlock(idx);
 }
 
 // ==================== AI Settings ====================
@@ -546,7 +548,7 @@ aiSaveBtn.addEventListener("click", () => {
   aiSettingsModal.classList.add("hidden");
 });
 
-// ==================== AI Prompt (free call UI) ====================
+// ==================== AI Prompt ====================
 let lastAIResponse = "";
 
 aiPromptBtn.addEventListener("click", () => {
@@ -572,22 +574,15 @@ aiPromptSend.addEventListener("click", async () => {
     if (data.ai.endpoint && data.ai.key) {
       const resp = await fetch(data.ai.endpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + data.ai.key,
-        },
-        body: JSON.stringify({
-          model: data.ai.model || "gpt-3.5-turbo",
-          messages: [{ role: "user", content: prompt }],
-        }),
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + data.ai.key },
+        body: JSON.stringify({ model: data.ai.model, messages: [{ role: "user", content: prompt }] }),
       });
       const json = await resp.json();
-      lastAIResponse = json.choices?.[0]?.message?.content ?? "[No response from AI]";
+      lastAIResponse = json.choices?.[0]?.message?.content ?? "[No response]";
     } else {
-      lastAIResponse = "AI response placeholder:\n\nYou asked: \"" + prompt + "\"\n\nTo get real AI responses, click ⚙️ and configure your endpoint & API key.";
+      lastAIResponse = "AI placeholder response:\n\nYou asked: \"" + prompt + "\"\n\nTo get real responses, click ⚙️ and add your endpoint & API key.";
     }
   } catch (err) {
-    console.error(err);
     lastAIResponse = "[Error] " + err.message;
   }
 
@@ -601,44 +596,31 @@ aiPromptInsert.addEventListener("click", () => {
   if (!lastAIResponse) return;
   const page = data.pages[data.currentPageId];
   page.blocks.push({ type: "paragraph", content: lastAIResponse });
-  saveData();
-  renderBlocks();
+  saveData(); renderBlocks();
   aiPromptModal.classList.add("hidden");
 });
 
-// ==================== Per-block AI send ====================
+// ==================== Per-block AI ====================
 async function sendBlockToAI(blockIdx) {
   const page = data.pages[data.currentPageId];
   const block = page.blocks[blockIdx];
   if (!block) return;
-
-  const text = block.content || "(empty block)";
-
   if (!data.ai.endpoint || !data.ai.key) {
-    alert("Please configure your AI endpoint and key first (click ⚙️).");
+    alert("Configure your AI endpoint & key first (⚙️).");
     return;
   }
-
   try {
     const resp = await fetch(data.ai.endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + data.ai.key,
-      },
-      body: JSON.stringify({
-        model: data.ai.model || "gpt-3.5-turbo",
-        messages: [{ role: "user", content: text }],
-      }),
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + data.ai.key },
+      body: JSON.stringify({ model: data.ai.model, messages: [{ role: "user", content: block.content || "" }] }),
     });
     const json = await resp.json();
     const reply = json.choices?.[0]?.message?.content ?? "[No response]";
     page.blocks.splice(blockIdx + 1, 0, { type: "paragraph", content: reply });
-    saveData();
-    renderBlocks();
+    saveData(); renderBlocks();
   } catch (err) {
-    console.error(err);
-    alert("AI request failed: " + err.message);
+    alert("AI error: " + err.message);
   }
 }
 

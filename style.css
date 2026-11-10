@@ -123,10 +123,11 @@ body {
 .blocks {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 20px 60px 80px;
+  padding: 20px 60px 200px; /* large bottom padding so empty space is clickable */
   max-width: 900px;
   margin: 0 auto;
   width: 100%;
+  cursor: text; /* hint that clicking here will place the cursor */
 }
 
 /* ===== Block ===== */
@@ -139,8 +140,8 @@ body {
   transition: background 0.12s;
 }
 .block:hover { background: #f7f6f5; }
-.block[contenteditable="true"] { outline: none; }
-.block[contenteditable="true"]:empty::before {
+.block-content { outline: none; }
+.block-content:empty::before {
   content: "Type '/' for commands";
   color: #c4c4c0;
   pointer-events: none;
